@@ -20,7 +20,6 @@ qdl.ApiConfig.api_key = TOKEN
 
 class GenerateQuandlReport(luigi.Task):
     date = luigi.DateParameter(default=datetime.today())
-    input_filename = luigi.Parameter()
 
     def requires(self):
         return []
