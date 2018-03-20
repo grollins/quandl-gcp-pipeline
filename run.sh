@@ -1,5 +1,5 @@
 #!/bin/bash
 
-python pipeline.py GenerateQuandlReport \
+python pipeline.py GenerateReport \
   --local-scheduler \
   --workers=1
