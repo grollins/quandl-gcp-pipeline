@@ -33,8 +33,12 @@ class GenerateQuandlReport(luigi.Task):
         ticker_df = pd.read_csv('djia_symbols.csv')
         ticker_list = ticker_df.symbol.tolist()
 
+        df = qdl.get_table('WIKI/PRICES', ticker=ticker_list,
+                           qopts={'columns': ['ticker', 'date', 'close']},
+                           date='2018-03-13')
+
         with self.output().open('w') as out_file:
-            out_file.write(ticker_list)
+            df.to_csv(out_file, index=False)
 
 
 if __name__ == '__main__':
