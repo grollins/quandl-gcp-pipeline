@@ -30,8 +30,11 @@ class GenerateQuandlReport(luigi.Task):
         return GCSTarget(output_path, client=GCS_CLIENT)
 
     def run(self):
+        ticker_df = pd.read_csv('djia_symbols.csv')
+        ticker_list = ticker_df.symbol.tolist()
+
         with self.output().open('w') as out_file:
-            out_file.write('hi')
+            out_file.write(ticker_list)
 
 
 if __name__ == '__main__':
