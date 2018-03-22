@@ -1,5 +1,6 @@
 from os import environ
 from datetime import datetime, timedelta
+import logging
 
 import google.auth
 import pandas as pd
@@ -9,15 +10,25 @@ import luigi
 from luigi.contrib.gcs import GCSClient, GCSTarget
 
 
+# Google Cloud
 CREDENTIALS, _ = google.auth.default()
 GCS_CLIENT = GCSClient(CREDENTIALS)
 BUCKET_PATH = 'gs://senpai-io.appspot.com/quandl-stage'
 
+# Quandl
 TOKEN = environ['QUANDL_TOKEN']
 qdl.ApiConfig.api_key = TOKEN
 
+# Dates
 TODAY = datetime.today()
 YESTERDAY = TODAY - timedelta(days=1)
+
+# Logging
+logger = logging.getLogger('luigi-interface')
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler('logs/{date:%Y-%m-%d}-luigi.log'.format(date=YESTERDAY))
+fh.setLevel(logging.INFO)
+logger.addHandler(fh)
 
 
 class GetDailyStockData(luigi.Task):
