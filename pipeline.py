@@ -3,7 +3,16 @@ from datetime import datetime, timedelta
 import logging
 
 import google.auth
+from google.cloud import storage
+
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-deep')
+
+from numpy import percentile
 import pandas as pd
+import pymc3 as pm
 import quandl as qdl
 
 import luigi
@@ -11,9 +20,12 @@ from luigi.contrib.gcs import GCSClient, GCSTarget
 
 
 # Google Cloud
+BUCKET_NAME = 'senpai-io.appspot.com'
+BUCKET_PATH = 'gs://{}'.format(BUCKET_NAME)
+BUCKET_SUBDIR = 'quandl-stage'
 CREDENTIALS, _ = google.auth.default()
 GCS_CLIENT = GCSClient(CREDENTIALS)
-BUCKET_PATH = 'gs://senpai-io.appspot.com/quandl-stage'
+GCS_BUCKET = storage.Client().get_bucket(BUCKET_NAME)
 
 # Quandl
 TOKEN = environ['QUANDL_TOKEN']
@@ -38,8 +50,8 @@ class GetDailyStockData(luigi.Task):
         return []
 
     def output(self):
-        output_path_template = '{}/data/{date:%Y-%m-%d}.csv'
-        output_path = output_path_template.format(BUCKET_PATH, date=self.date)
+        output_path_template = '{}/{}/data/{date:%Y-%m-%d}.csv'
+        output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR, date=self.date)
         return GCSTarget(output_path, client=GCS_CLIENT)
 
     def run(self):
@@ -62,16 +74,45 @@ class GenerateReport(luigi.Task):
         return GetDailyStockData(self.date)
 
     def output(self):
-        output_path_template = '{}/report/{date:%Y-%m-%d}.csv'
-        output_path = output_path_template.format(BUCKET_PATH, date=self.date)
+        output_path_template = '{}/{}/report/{date:%Y-%m-%d}.txt'
+        output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR, date=self.date)
         return GCSTarget(output_path, client=GCS_CLIENT)
 
     def run(self):
         with self.input().open('r') as in_file:
             df = pd.read_csv(in_file)
+
+        with pm.Model() as model:
+            # parameters
+            alpha = pm.Uniform('alpha', 0, 100)
+            beta = pm.Uniform('beta', 0, 1)
+            # observed data
+            p = pm.Gamma('p', alpha=alpha, beta=beta, observed=df['price'])
+            # run sampling
+            trace = pm.sample(2000, tune=1000)
+
+        ppc = pm.sample_ppc(trace, samples=200, model=model, size=30)
+
+        num_bins = df.shape[0]
+        plt.figure()
+        ax = df['price'].hist(bins=num_bins, cumulative=True, normed=1, histtype='step',
+                              color='k')
+        
+        for i in range(ppc['p'].shape[0]):
+            sA = pd.Series(ppc['p'][i,:])
+            sA.hist(bins=num_bins, cumulative=True, normed=1, histtype='step', ax=ax,
+                    color='r', alpha=0.1)
+
+        local_png_path_template = 'output/{date:%Y-%m-%d}.png'
+        local_png_path = local_png_path_template.format(date=self.date)
+        plt.savefig(local_png_path)
+
+        remote_png_path_template = '{}/report/{date:%Y-%m-%d}.png'
+        remote_png_path = remote_png_path_template.format(BUCKET_SUBDIR, date=self.date)
+        GCS_BUCKET.blob(remote_png_path).upload_from_filename(filename=local_png_path)
+        
         with self.output().open('w') as out_file:
             out_file.write(str(df['price'].mean()))
-
 
 if __name__ == '__main__':
     luigi.run()
