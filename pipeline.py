@@ -1,7 +1,6 @@
 from os import environ
 from datetime import datetime, timedelta
 
-
 import google.auth
 import pandas as pd
 import quandl as qdl
@@ -16,6 +15,9 @@ BUCKET_PATH = 'gs://senpai-io.appspot.com/quandl-stage'
 
 TOKEN = environ['QUANDL_TOKEN']
 qdl.ApiConfig.api_key = TOKEN
+
+TODAY = datetime.today()
+YESTERDAY = TODAY - timedelta(days=1)
 
 
 class GetDailyStockData(luigi.Task):
@@ -35,14 +37,15 @@ class GetDailyStockData(luigi.Task):
 
         df = qdl.get_table('WIKI/PRICES', ticker=ticker_list,
                            qopts={'columns': ['ticker', 'date', 'close']},
-                           date='2018-03-13')
+                           date=self.date.strftime('%Y-%m-%d'))
+        df = df.rename(columns={'close': 'price'})
 
         with self.output().open('w') as out_file:
             df.to_csv(out_file, index=False)
 
 
 class GenerateReport(luigi.Task):
-    date = luigi.DateParameter(default=datetime.today())
+    date = luigi.DateParameter(default=YESTERDAY)
 
     def requires(self):
         return GetDailyStockData(self.date)
@@ -56,7 +59,7 @@ class GenerateReport(luigi.Task):
         with self.input().open('r') as in_file:
             df = pd.read_csv(in_file)
         with self.output().open('w') as out_file:
-            out_file.write(str(df['close'].mean()))
+            out_file.write(str(df['price'].mean()))
 
 
 if __name__ == '__main__':
