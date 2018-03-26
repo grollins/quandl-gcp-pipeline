@@ -16,16 +16,19 @@ import pymc3 as pm
 import quandl as qdl
 
 import luigi
-from luigi.contrib.gcs import GCSClient, GCSTarget
+from luigi.contrib import gcs
+from luigi.contrib import bigquery
 
 
 # Google Cloud
+PROJECT_ID = 'senpai-io'
 BUCKET_NAME = 'senpai-io.appspot.com'
 BUCKET_PATH = 'gs://{}'.format(BUCKET_NAME)
 BUCKET_SUBDIR = 'quandl-stage'
 CREDENTIALS, _ = google.auth.default()
-GCS_CLIENT = GCSClient(CREDENTIALS)
+GCS_CLIENT = gcs.GCSClient(CREDENTIALS)
 GCS_BUCKET = storage.Client().get_bucket(BUCKET_NAME)
+BQ_CLIENT = bigquery.BigQueryClient(CREDENTIALS)
 
 # Quandl
 TOKEN = environ['QUANDL_TOKEN']
@@ -52,7 +55,7 @@ class GetDailyStockData(luigi.Task):
     def output(self):
         output_path_template = '{}/{}/data/{date:%Y-%m-%d}.csv'
         output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR, date=self.date)
-        return GCSTarget(output_path, client=GCS_CLIENT)
+        return gcs.GCSTarget(output_path, client=gcs.GCS_CLIENT)
 
     def run(self):
         ticker_df = pd.read_csv('djia_symbols.csv')
@@ -76,7 +79,7 @@ class GenerateReport(luigi.Task):
     def output(self):
         output_path_template = '{}/{}/report/{date:%Y-%m-%d}.txt'
         output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR, date=self.date)
-        return GCSTarget(output_path, client=GCS_CLIENT)
+        return gcs.GCSTarget(output_path, client=gcs.GCS_CLIENT)
 
     def run(self):
         with self.input().open('r') as in_file:
@@ -113,6 +116,76 @@ class GenerateReport(luigi.Task):
         
         with self.output().open('w') as out_file:
             out_file.write(str(df['price'].mean()))
+
+
+class LoadRecordsInTable(bigquery.BigQueryLoadTask):
+    date = luigi.DateParameter()
+    source_format = bigquery.SourceFormat.CSV
+    write_disposition = bigquery.WriteDisposition.WRITE_APPEND
+    skip_leading_rows = 1
+
+    def requires(self):
+        return GetDailyStockData(self.date)
+
+    def output(self):
+        dataset = 'stocks'
+        table = 'price_daily'
+
+        return bigquery.BigQueryTarget(PROJECT_ID, dataset, table,
+                                       client=BQ_CLIENT)
+
+class QueryStockPriceData(luigi.Task):
+    # client = bigquery.Client()
+    query_str = ('SELECT p.ticker AS ticker, '
+                 'p.date AS date, '
+                 'p.price AS price, '
+                 's.name AS name '
+                 'FROM [senpai-io:stocks.price_daily] p '
+                 'LEFT OUTER JOIN [senpai-io:stocks.symbol] s '
+                 'ON p.ticker = s.ticker ')
+
+    def requires(self):
+        return LoadRecordsInTable()
+
+    def output(self):
+        return luigi.LocalTarget('output/price_history.csv')
+
+    def run(self):
+        df = bq_client.query(self.query_str).to_dataframe()
+        with self.output().open('w') as out_file:
+            df.to_csv(out_file, index=False)
+
+
+'''
+class QueryStockPriceData(bigquery.BigQueryRunQueryTask):
+    query = ('SELECT p.ticker AS ticker, '
+             'p.date AS date, '
+             'p.price AS price, '
+             's.name AS name '
+             'FROM [senpai-io:stocks.price_daily] p '
+             'LEFT OUTER JOIN [senpai-io:stocks.symbol] s '
+             'ON p.ticker = s.ticker ')
+
+    def requires(self):
+        return LoadRecordsInTable()
+
+    def output(self):
+        dataset = 'stocks'
+        table = 'price_history'
+
+        return bigquery.BigQueryTarget(PROJECT_ID, dataset, table,
+                                       client=BQ_CLIENT)
+
+
+class GetPriceHistory(bigquery.BigQueryExtractTask):
+    def requires(self):
+        return QueryStockPriceData()
+
+    def output(self):
+        output_path_template = '{}/{}/data/price_history.csv'
+        output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR)
+        return gcs.GCSTarget(output_path, client=gcs.GCS_CLIENT)
+'''
 
 if __name__ == '__main__':
     luigi.run()
