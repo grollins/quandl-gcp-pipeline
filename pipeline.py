@@ -55,7 +55,7 @@ class GetDailyStockData(luigi.Task):
     def output(self):
         output_path_template = '{}/{}/data/{date:%Y-%m-%d}.csv'
         output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR, date=self.date)
-        return gcs.GCSTarget(output_path, client=gcs.GCS_CLIENT)
+        return gcs.GCSTarget(output_path, client=GCS_CLIENT)
 
     def run(self):
         ticker_df = pd.read_csv('djia_symbols.csv')
@@ -79,7 +79,7 @@ class GenerateReport(luigi.Task):
     def output(self):
         output_path_template = '{}/{}/report/{date:%Y-%m-%d}.txt'
         output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR, date=self.date)
-        return gcs.GCSTarget(output_path, client=gcs.GCS_CLIENT)
+        return gcs.GCSTarget(output_path, client=GCS_CLIENT)
 
     def run(self):
         with self.input().open('r') as in_file:
@@ -100,7 +100,7 @@ class GenerateReport(luigi.Task):
         plt.figure()
         ax = df['price'].hist(bins=num_bins, cumulative=True, normed=1, histtype='step',
                               color='k')
-        
+
         for i in range(ppc['p'].shape[0]):
             sA = pd.Series(ppc['p'][i,:])
             sA.hist(bins=num_bins, cumulative=True, normed=1, histtype='step', ax=ax,
@@ -113,7 +113,7 @@ class GenerateReport(luigi.Task):
         remote_png_path_template = '{}/report/{date:%Y-%m-%d}.png'
         remote_png_path = remote_png_path_template.format(BUCKET_SUBDIR, date=self.date)
         GCS_BUCKET.blob(remote_png_path).upload_from_filename(filename=local_png_path)
-        
+
         with self.output().open('w') as out_file:
             out_file.write(str(df['price'].mean()))
 
@@ -135,7 +135,6 @@ class LoadRecordsInTable(bigquery.BigQueryLoadTask):
                                        client=BQ_CLIENT)
 
 class QueryStockPriceData(luigi.Task):
-    # client = bigquery.Client()
     query_str = ('SELECT p.ticker AS ticker, '
                  'p.date AS date, '
                  'p.price AS price, '
@@ -184,9 +183,8 @@ class GetPriceHistory(bigquery.BigQueryExtractTask):
     def output(self):
         output_path_template = '{}/{}/data/price_history.csv'
         output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR)
-        return gcs.GCSTarget(output_path, client=gcs.GCS_CLIENT)
+        return gcs.GCSTarget(output_path, client=GCS_CLIENT)
 '''
 
 if __name__ == '__main__':
     luigi.run()
-
