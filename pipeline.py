@@ -1,6 +1,8 @@
 from os import environ
 from datetime import datetime, timedelta
 import logging
+import requests
+import backoff
 
 import google.auth
 from google.cloud import storage
@@ -13,7 +15,6 @@ plt.style.use('seaborn-deep')
 from numpy import percentile
 import pandas as pd
 import pymc3 as pm
-import quandl as qdl
 
 import luigi
 from luigi.contrib import gcs
@@ -29,10 +30,6 @@ CREDENTIALS, _ = google.auth.default()
 GCS_CLIENT = gcs.GCSClient(CREDENTIALS)
 GCS_BUCKET = storage.Client().get_bucket(BUCKET_NAME)
 BQ_CLIENT = bigquery.BigQueryClient(CREDENTIALS)
-
-# Quandl
-TOKEN = environ['QUANDL_TOKEN']
-qdl.ApiConfig.api_key = TOKEN
 
 # Dates
 TODAY = datetime.today()
@@ -61,10 +58,24 @@ class GetDailyStockData(luigi.Task):
         ticker_df = pd.read_csv('djia_symbols.csv')
         ticker_list = ticker_df.symbol.tolist()
 
-        df = qdl.get_table('WIKI/PRICES', ticker=ticker_list,
-                           qopts={'columns': ['ticker', 'date', 'close']},
-                           date=self.date.strftime('%Y-%m-%d'))
-        df = df.rename(columns={'close': 'price'})
+        session = requests.Session()
+
+        @backoff.on_exception(backoff.constant,
+                      (requests.exceptions.RequestException),
+                      jitter=backoff.random_jitter,
+                      max_tries=5,
+                      interval=30)
+        def send_iex_request(url):
+            response = session.get(url=url)
+            response.raise_for_status()
+            return response
+
+        IEX_URL = 'https://api.iextrading.com/1.0/stock/market/batch?symbols={}&types=ohlc'
+        url = IEX_URL.format(','.join(ticker_list))
+        r = send_iex_request(url)
+        price = [(k, v['ohlc']['close']['price']) for k,v in r.json().items()]
+        df = pd.DataFrame(price, columns=['ticker', 'price'])
+        df['date'] = self.date.strftime('%Y-%m-%d')
 
         with self.output().open('w') as out_file:
             df.to_csv(out_file, index=False)
