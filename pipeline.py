@@ -19,6 +19,7 @@ import pymc3 as pm
 import luigi
 from luigi.contrib import gcs
 from luigi.contrib import bigquery
+from luigi.contrib import external_program
 
 
 # Google Cloud
@@ -129,6 +130,22 @@ class GenerateReport(luigi.Task):
             out_file.write(str(df['price'].mean()))
 
 
+class DeployAppEngine(external_program.ExternalProgramTask):
+    date = luigi.DateParameter(default=YESTERDAY)
+
+    def requires(self):
+        return GenerateReport(self.date)
+
+    def output(self):
+        output_template = 'output/{date:%Y-%m-%d}_appeng.txt'
+        output_path = output_template.format(date=self.date)
+        return luigi.LocalTarget(output_path)
+
+    def program_args(self):
+        return ['./deploy_app_engine.sh']
+
+
+'''
 class LoadRecordsInTable(bigquery.BigQueryLoadTask):
     date = luigi.DateParameter()
     source_format = bigquery.SourceFormat.CSV
@@ -166,7 +183,6 @@ class QueryStockPriceData(luigi.Task):
             df.to_csv(out_file, index=False)
 
 
-'''
 class QueryStockPriceData(bigquery.BigQueryRunQueryTask):
     query = ('SELECT p.ticker AS ticker, '
              'p.date AS date, '

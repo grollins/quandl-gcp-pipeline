@@ -1,5 +1,5 @@
 #!/bin/bash
 
-python pipeline.py GenerateReport \
+python pipeline.py DeployAppEngine \
   --local-scheduler \
   --workers=1
