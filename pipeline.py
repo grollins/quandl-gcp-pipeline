@@ -34,7 +34,7 @@ GCS_BUCKET = storage.Client().get_bucket(BUCKET_NAME)
 
 # Dates
 TODAY = datetime.today()
-YESTERDAY = TODAY - timedelta(days=6)
+YESTERDAY = TODAY - timedelta(days=1)
 
 # Logging
 logger = logging.getLogger('luigi-interface')
@@ -83,6 +83,7 @@ class GetDailyStockData(luigi.Task):
             df.to_csv(out_file, index=False)
 
         return
+
 
 class LoadRecordsInBigQuery(luigi.Task):
     date = luigi.DateParameter()
