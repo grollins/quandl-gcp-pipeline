@@ -126,11 +126,36 @@ class LoadRecordsInBigQuery(luigi.Task):
         return
 
 
-class GenerateReport(luigi.Task):
-    date = luigi.DateParameter(default=YESTERDAY)
+class QueryStockPriceData(luigi.Task):
+    date = luigi.DateParameter()
+    query_str = ('SELECT p.ticker AS ticker, '
+                 'p.date AS date, '
+                 'p.price AS price, '
+                 's.name AS name '
+                 'FROM `stocks.price_daily` p '
+                 'LEFT OUTER JOIN `stocks.symbol` s '
+                 'ON p.ticker = s.ticker ')
 
     def requires(self):
-        return GetDailyStockData(self.date)
+        return LoadRecordsInBigQuery(self.date)
+
+    def output(self):
+        output_path_template = 'output/{date:%Y-%m-%d}_price_history.csv'
+        output_path = output_path_template.format(date=self.date)
+        return luigi.LocalTarget(output_path)
+
+    def run(self):
+        client = bigquery.Client()
+        df = client.query(self.query_str).to_dataframe()
+        with self.output().open('w') as out_file:
+            df.to_csv(out_file, index=False)
+
+
+class GenerateReport(luigi.Task):
+    date = luigi.DateParameter()
+
+    def requires(self):
+        return QueryStockPriceData(self.date)
 
     def output(self):
         output_path_template = '{}/{}/report/{date:%Y-%m-%d}.txt'
@@ -180,63 +205,11 @@ class DeployAppEngine(external_program.ExternalProgramTask):
     date = luigi.DateParameter(default=YESTERDAY)
 
     def requires(self):
-        return [GenerateReport(self.date), LoadRecordsInBigQuery(self.date)]
+        return GenerateReport(self.date)
 
     def program_args(self):
         return ['./deploy_app_engine.sh']
 
-
-'''
-class QueryStockPriceData(luigi.Task):
-    query_str = ('SELECT p.ticker AS ticker, '
-                 'p.date AS date, '
-                 'p.price AS price, '
-                 's.name AS name '
-                 'FROM [senpai-io:stocks.price_daily] p '
-                 'LEFT OUTER JOIN [senpai-io:stocks.symbol] s '
-                 'ON p.ticker = s.ticker ')
-
-    def requires(self):
-        return LoadRecordsInTable()
-
-    def output(self):
-        return luigi.LocalTarget('output/price_history.csv')
-
-    def run(self):
-        df = bq_client.query(self.query_str).to_dataframe()
-        with self.output().open('w') as out_file:
-            df.to_csv(out_file, index=False)
-
-
-class QueryStockPriceData(luigi_bigquery.BigQueryRunQueryTask):
-    query = ('SELECT p.ticker AS ticker, '
-             'p.date AS date, '
-             'p.price AS price, '
-             's.name AS name '
-             'FROM [senpai-io:stocks.price_daily] p '
-             'LEFT OUTER JOIN [senpai-io:stocks.symbol] s '
-             'ON p.ticker = s.ticker ')
-
-    def requires(self):
-        return LoadRecordsInTable()
-
-    def output(self):
-        dataset = 'stocks'
-        table = 'price_history'
-
-        return luigi_bigquery.BigQueryTarget(PROJECT_ID, dataset, table,
-                                             client=BQ_CLIENT)
-
-
-class GetPriceHistory(luigi_bigquery.BigQueryExtractTask):
-    def requires(self):
-        return QueryStockPriceData()
-
-    def output(self):
-        output_path_template = '{}/{}/data/price_history.csv'
-        output_path = output_path_template.format(BUCKET_PATH, BUCKET_SUBDIR)
-        return luigi_gcs.GCSTarget(output_path, client=GCS_CLIENT)
-'''
 
 if __name__ == '__main__':
     luigi.run()
