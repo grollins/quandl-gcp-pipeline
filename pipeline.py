@@ -166,26 +166,10 @@ class GenerateReport(luigi.Task):
         with self.input().open('r') as in_file:
             df = pd.read_csv(in_file)
 
-        with pm.Model() as model:
-            # parameters
-            alpha = pm.Uniform('alpha', 0, 100)
-            beta = pm.Uniform('beta', 0, 1)
-            # observed data
-            p = pm.Gamma('p', alpha=alpha, beta=beta, observed=df['price'])
-            # run sampling
-            trace = pm.sample(2000, tune=1000)
-
-        ppc = pm.sample_ppc(trace, samples=200, model=model, size=30)
-
-        num_bins = df.shape[0]
-        plt.figure()
-        ax = df['price'].hist(bins=num_bins, cumulative=True, normed=1, histtype='step',
-                              color='k')
-
-        for i in range(ppc['p'].shape[0]):
-            sA = pd.Series(ppc['p'][i,:])
-            sA.hist(bins=num_bins, cumulative=True, normed=1, histtype='step', ax=ax,
-                    color='r', alpha=0.1)
+        df.set_index('ticker', inplace=True)
+        df = df.loc[['MSFT', 'AAPL', 'AXP', 'V']]
+        df = df.pivot(index='date', columns='name', values='price')
+        df.plot()
 
         local_png_path_template = 'output/{date:%Y-%m-%d}.png'
         local_png_path = local_png_path_template.format(date=self.date)
