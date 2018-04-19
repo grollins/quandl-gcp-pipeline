@@ -99,7 +99,7 @@ class LoadRecordsInBigQuery(luigi.Task):
     def run(self):
         client = bigquery.Client()
         dataset_ref = client.dataset('stocks')
-        table_ref = dataset_ref.table('price_daily')
+        table_ref = dataset_ref.table('price_daily_v2')
         previous_rows = client.get_table(table_ref).num_rows
 
         job_config = bigquery.LoadJobConfig()
@@ -132,7 +132,7 @@ class QueryStockPriceData(luigi.Task):
                  'p.date AS date, '
                  'p.price AS price, '
                  's.name AS name '
-                 'FROM `stocks.price_daily` p '
+                 'FROM `stocks.price_daily_v2` p '
                  'LEFT OUTER JOIN `stocks.symbol` s '
                  'ON p.ticker = s.ticker ')
 
