@@ -180,7 +180,7 @@ class GenerateReport(luigi.Task):
         GCS_BUCKET.blob(remote_png_path).upload_from_filename(filename=local_png_path)
 
         with self.output().open('w') as out_file:
-            out_file.write(str(df['price'].mean()))
+            out_file.write('done')
 
         return
 
