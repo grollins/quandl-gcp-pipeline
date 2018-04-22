@@ -7,7 +7,9 @@ import backoff
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 plt.style.use('seaborn-deep')
+import seaborn as sns
 
 from numpy import percentile
 import pandas as pd
@@ -164,12 +166,17 @@ class GenerateReport(luigi.Task):
 
     def run(self):
         with self.input().open('r') as in_file:
-            df = pd.read_csv(in_file)
+            df = pd.read_csv(in_file, parse_dates=['date'])
 
-        df.set_index('ticker', inplace=True)
-        df = df.loc[['MSFT', 'AAPL', 'AXP', 'V']]
-        df = df.pivot(index='date', columns='name', values='price')
-        df.plot()
+        ax = (df.set_index('ticker')
+                .loc[['MSFT', 'AAPL', 'AXP', 'V']]
+                .query("date >= '2018-01-01'")
+                .drop_duplicates()
+                .pivot(index='date', columns='name', values='price')
+                .plot())
+
+        ax.xaxis.set_major_locator(mdates.WeekdayLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
 
         local_png_path_template = 'output/{date:%Y-%m-%d}.png'
         local_png_path = local_png_path_template.format(date=self.date)
